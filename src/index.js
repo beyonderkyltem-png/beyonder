@@ -46,21 +46,25 @@ async function iniciarBot() {
   // ============================================================
   const phoneNumber = process.env.WHATSAPP_PHONE_NUMBER;
   const usarPairingCode = process.env.WHATSAPP_PAIRING_CODE_ONLY === 'true' && phoneNumber;
+  let yaPediPairingCode = false;
 
-  if (usarPairingCode && !sock.authState.creds.registered) {
+  if (usarPairingCode) {
     sock.ev.on('creds.update', async () => {
-      if (sock.authState.creds.registered) return;
+      // Solo pedimos pairing code UNA VEZ: si no está registrado y aún no lo pedimos.
+      if (sock.authState.creds.registered || yaPediPairingCode) return;
+      yaPediPairingCode = true;
       try {
         const pairingCode = await sock.requestPairingCode(phoneNumber);
         appLogger.info(
-          `📱 CÓDIGO DE VINCULACIÓN (Pairing Code) para el número +${phoneNumber}:`,
-          pairingCode
+          `📱 CÓDIGO DE VINCULACIÓN (Pairing Code) para +${phoneNumber}: ${pairingCode}`
         );
         appLogger.info(
-          'Ingresalo en WhatsApp → Dispositivos vinculados → Vincular con NÚMERO.'
+          '➡️  En WhatsApp del teléfono BOT: Dispositivos vinculados → + →'
+          + ' "Vincular con número de teléfono" → ingresar el código SIN GUION.'
         );
       } catch (err) {
-        appLogger.error({ err }, '❌ Error pidiendo pairing code a WhatsApp');
+        yaPediPairingCode = false; // permitimos reintento si falló
+        appLogger.error({ err }, '❌ Error pidiendo pairing code a WhatsApp (reintentaré si hay actualización de creds)');
       }
     });
   }

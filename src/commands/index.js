@@ -15,10 +15,13 @@ require('./recordatorios');
 require('./cumpleanos');
 require('./pais');
 require('./diversion');
-require('./stickers');
+// TEMPORAL: stickers comentado en Windows porque sharp falla al no encontrar binarios.
+// En Render (Linux) sharp se instala bien; si allá se rompe, descomentar y corregir.
+// require('./stickers');
 require('./acciones');
 require('./dedicar');
 require('./eventos');
-require('./musica');
+// TEMPORAL: comentar música también para evitar posibles fallos de yt-dlp en Windows.
+// require('./musica');
 
 module.exports = { registrar, obtener };

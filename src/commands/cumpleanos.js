@@ -1,5 +1,5 @@
 const { registrar } = require('./registry');
-const db = require('../database/db');
+const Cumpleanos = require('../database/models/Cumpleanos');
 const paisService = require('../services/paisService');
 const { responderConTyping } = require('../utils/typing');
 
@@ -17,11 +17,15 @@ registrar(['cumple', 'bd'], async ({ sock, jid, remitente, textoCompleto, reacci
   }
 
   const [, fechaDDMM, pais] = match;
-  paisService.setPaisManual(remitente, pais.toLowerCase());
+  const paisLower = pais.toLowerCase();
+  await paisService.setPaisManual(remitente, paisLower);
 
-  db.prepare(
-    `INSERT INTO cumpleanos (jid_chat, jid_usuario, fecha, pais) VALUES (?, ?, ?, ?)`
-  ).run(jid, remitente, fechaDDMM, pais.toLowerCase());
+  await Cumpleanos.create({
+    jid_chat: jid,
+    jid_usuario: remitente,
+    fecha: fechaDDMM,
+    pais: paisLower,
+  });
 
   await reaccionar('✔️');
 });

@@ -1,5 +1,5 @@
 const { registrar } = require('./registry');
-const db = require('../database/db');
+const Recordatorio = require('../database/models/Recordatorio');
 const paisService = require('../services/paisService');
 const { aUTC } = require('../utils/fechas');
 const { responderConTyping } = require('../utils/typing');
@@ -17,7 +17,7 @@ registrar('record', async ({ sock, jid, remitente, textoCompleto, reaccionar }) 
   }
 
   const [, fecha, hora, ampm, mensaje] = match;
-  const timezone = paisService.obtenerTimezone(remitente);
+  const timezone = await paisService.obtenerTimezone(remitente);
   if (!timezone) {
     await reaccionar('❔');
     return responderConTyping(sock, jid, {
@@ -26,10 +26,13 @@ registrar('record', async ({ sock, jid, remitente, textoCompleto, reaccionar }) 
   }
 
   const fechaUTC = aUTC(fecha, hora, ampm, timezone);
-  db.prepare(
-    `INSERT INTO recordatorios (jid_chat, jid_usuario, mensaje, fecha_hora_utc)
-     VALUES (?, ?, ?, ?)`
-  ).run(jid, remitente, mensaje, fechaUTC);
+  await Recordatorio.create({
+    jid_chat: jid,
+    jid_usuario: remitente,
+    mensaje,
+    fecha_hora_utc: fechaUTC,
+    enviado: 0,
+  });
 
   await reaccionar('✔️');
 });

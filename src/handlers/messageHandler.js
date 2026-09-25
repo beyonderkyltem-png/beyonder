@@ -49,7 +49,7 @@ async function manejarMensaje(sock, msg) {
   // una búsqueda de /yt pendiente, y si no, si mencionan al bot por su
   // nombre para responder con IA.
   if (!parsed) {
-    if (!permisos.debeProcesar(jid, esGrupo, null)) return;
+    if (!(await permisos.debeProcesar(jid, esGrupo, null))) return;
 
     const fueSeleccionYT = await manejarSeleccionYT({
       sock, jid, remitente, texto, reaccionar,
@@ -64,7 +64,7 @@ async function manejarMensaje(sock, msg) {
 
   const { comando, args, textoCompleto } = parsed;
 
-  if (!permisos.debeProcesar(jid, esGrupo, comando)) return;
+  if (!(await permisos.debeProcesar(jid, esGrupo, comando))) return;
 
   const handler = obtener(comando);
   if (!handler) return; // comando desconocido: no respondemos nada (regla #6)

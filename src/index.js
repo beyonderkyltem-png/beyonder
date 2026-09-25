@@ -4,6 +4,7 @@ const {
   fetchLatestBaileysVersion,
 } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
+const express = require('express');
 
 const config = require('./config');
 const { baileysLogger, appLogger } = require('./utils/logger');
@@ -85,6 +86,34 @@ async function iniciarBot() {
   return sock;
 }
 
+// ============================================================
+// Servidor HTTP mínimo — para que el servicio NO se apague en
+// Render Free Tier. Conectamos con UptimeRobot / Cron-job.org
+// para que le hagan un GET cada 5 min al endpoint /health.
+// ============================================================
+function iniciarServidorHTTP() {
+  const app = express();
+  const PORT = process.env.PORT || 3000;
+
+  app.use(express.json());
+
+  app.get('/', (_req, res) => {
+    res.send('🤖 Beyonder bot en línea. Ping /health para comprobar estado.');
+  });
+
+  app.get('/health', (_req, res) => {
+    res.status(200).json({
+      ok: true,
+      uptimeSegundos: process.uptime().toFixed(0),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.listen(PORT, () => {
+    appLogger.info(`🌐 Servidor HTTP escuchando en puerto ${PORT} — /health listo para pings de keep-alive`);
+  });
+}
+
 // Atajamos errores no controlados para que el proceso no muera de golpe;
 // en producción convendría correr esto bajo pm2 o un supervisor similar
 // que reinicie el proceso si igual llega a caerse.
@@ -92,4 +121,9 @@ process.on('unhandledRejection', (err) => {
   appLogger.error({ err }, 'unhandledRejection');
 });
 
+// 1) Levantamos HTTP ANTES: Render necesita que el servicio responda
+//    rápido en el puerto que Render asigna (process.env.PORT).
+iniciarServidorHTTP();
+
+// 2) Luego iniciamos el bot (Mongo + Baileys + cron).
 iniciarBot();

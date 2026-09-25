@@ -1,5 +1,8 @@
 const cron = require('node-cron');
-const db = require('../database/db');
+const Recordatorio = require('../database/models/Recordatorio');
+const Cumpleanos = require('../database/models/Cumpleanos');
+const Evento = require('../database/models/Evento');
+const EventoRespuesta = require('../database/models/EventoRespuesta');
 const config = require('../config');
 const { fechaHoyEnTimezone, diasHastaCumple } = require('../utils/fechas');
 const { appLogger } = require('../utils/logger');
@@ -12,11 +15,10 @@ const frases = require('../frases/eventos');
 function iniciarCronRecordatorios(sock) {
   cron.schedule('* * * * *', async () => {
     const ahoraISO = new Date().toISOString();
-    const pendientes = db
-      .prepare(
-        `SELECT * FROM recordatorios WHERE enviado = 0 AND fecha_hora_utc <= ?`
-      )
-      .all(ahoraISO);
+    const pendientes = await Recordatorio.find({
+      enviado: 0,
+      fecha_hora_utc: { $lte: ahoraISO },
+    }).lean();
 
     for (const r of pendientes) {
       try {
@@ -25,12 +27,9 @@ function iniciarCronRecordatorios(sock) {
           mentions: [r.jid_usuario],
         });
       } catch (err) {
-        appLogger.error({ err, id: r.id }, 'Error enviando recordatorio');
+        appLogger.error({ err, id: r._id }, 'Error enviando recordatorio');
       } finally {
-        // Se marca como enviado incluso si falló el envío, para no reintentar
-        // en loop; si preferís reintentos, sacá este finally y solo marcá
-        // "enviado" dentro del try.
-        db.prepare('UPDATE recordatorios SET enviado = 1 WHERE id = ?').run(r.id);
+        await Recordatorio.updateOne({ _id: r._id }, { $set: { enviado: 1 } });
       }
     }
   });
@@ -44,13 +43,13 @@ function iniciarCronRecordatorios(sock) {
  */
 function iniciarCronCumpleanos(sock) {
   cron.schedule('*/15 * * * *', async () => {
-    const filas = db.prepare('SELECT * FROM cumpleanos').all();
+    const filas = await Cumpleanos.find().lean();
 
     for (const c of filas) {
       const timezone = config.timezones[c.pais] || config.timezones.rd;
       const hoyStr = fechaHoyEnTimezone(timezone);
 
-      if (c.ultimo_dia_procesado === hoyStr) continue; // ya procesado hoy
+      if (c.ultimo_dia_procesado === hoyStr) continue;
 
       const dias = diasHastaCumple(c.fecha, timezone);
       const nombre = `@${c.jid_usuario.split('@')[0]}`;
@@ -75,25 +74,32 @@ function iniciarCronCumpleanos(sock) {
         try {
           await sock.sendMessage(c.jid_chat, { text: mensaje, mentions: [c.jid_usuario] });
         } catch (err) {
-          appLogger.error({ err, id: c.id }, 'Error enviando aviso de cumpleaños');
+          appLogger.error({ err, id: c._id }, 'Error enviando aviso de cumpleaños');
         }
 
-        // Si ya se avisó el día del cumpleaños, reseteamos los 4 flags para
-        // que el próximo año vuelva a avisar normalmente.
         if (campoAviso === 'aviso_dia_enviado') {
-          db.prepare(
-            `UPDATE cumpleanos SET aviso_3_enviado = 0, aviso_2_enviado = 0,
-             aviso_1_enviado = 0, aviso_dia_enviado = 0, ultimo_dia_procesado = ?
-             WHERE id = ?`
-          ).run(hoyStr, c.id);
+          await Cumpleanos.updateOne(
+            { _id: c._id },
+            {
+              $set: {
+                aviso_3_enviado: 0,
+                aviso_2_enviado: 0,
+                aviso_1_enviado: 0,
+                aviso_dia_enviado: 0,
+                ultimo_dia_procesado: hoyStr,
+              },
+            }
+          );
         } else {
-          db.prepare(
-            `UPDATE cumpleanos SET ${campoAviso} = 1, ultimo_dia_procesado = ? WHERE id = ?`
-          ).run(hoyStr, c.id);
+          await Cumpleanos.updateOne(
+            { _id: c._id },
+            { $set: { [campoAviso]: 1, ultimo_dia_procesado: hoyStr } }
+          );
         }
       } else {
-        db.prepare('UPDATE cumpleanos SET ultimo_dia_procesado = ? WHERE id = ?').run(
-          hoyStr, c.id
+        await Cumpleanos.updateOne(
+          { _id: c._id },
+          { $set: { ultimo_dia_procesado: hoyStr } }
         );
       }
     }
@@ -111,20 +117,16 @@ function iniciarCronEventos(sock) {
     const limiteISO = new Date(ahoraMs + config.eventoRecordatorioMin * 60000).toISOString();
     const ahoraISO = new Date(ahoraMs).toISOString();
 
-    const proximos = db
-      .prepare(
-        `SELECT * FROM eventos
-         WHERE recordatorio_enviado = 0
-           AND fecha_hora_utc <= ?
-           AND fecha_hora_utc >= ?`
-      )
-      .all(limiteISO, ahoraISO);
+    const proximos = await Evento.find({
+      recordatorio_enviado: 0,
+      fecha_hora_utc: { $lte: limiteISO, $gte: ahoraISO },
+    }).lean();
 
     for (const ev of proximos) {
-      const confirmados = db
-        .prepare(`SELECT jid_usuario FROM evento_respuestas WHERE evento_id = ? AND respuesta = 'si'`)
-        .all(ev.id)
-        .map((r) => r.jid_usuario);
+      const confirmados = (await EventoRespuesta.find({
+        evento_id: ev._id,
+        respuesta: 'si',
+      }).lean()).map((r) => r.jid_usuario);
 
       const base = frases.recordatorio[Math.floor(Math.random() * frases.recordatorio.length)]
         .replace('{descripcion}', ev.descripcion);
@@ -136,9 +138,12 @@ function iniciarCronEventos(sock) {
           mentions: confirmados,
         });
       } catch (err) {
-        appLogger.error({ err, id: ev.id }, 'Error enviando recordatorio de evento');
+        appLogger.error({ err, id: ev._id }, 'Error enviando recordatorio de evento');
       } finally {
-        db.prepare('UPDATE eventos SET recordatorio_enviado = 1 WHERE id = ?').run(ev.id);
+        await Evento.updateOne(
+          { _id: ev._id },
+          { $set: { recordatorio_enviado: 1 } }
+        );
       }
     }
   });

@@ -36,10 +36,40 @@ async function iniciarBot() {
   // hay que persistirlas, si no la sesión se pierde en el próximo reinicio.
   sock.ev.on('creds.update', saveCreds);
 
+  // ============================================================
+  // Vinculación por PAIRING CODE (opción sin QR, por número)
+  // Si en .env / Render está WHATSAPP_PHONE_NUMBER y
+  // WHATSAPP_PAIRING_CODE_ONLY=true, usamos este método.
+  // El código de 8 dígitos que se imprima en logs lo ingresás en:
+  // WhatsApp → Dispositivos vinculados → + → "Vincular con NÚMERO" →
+  // escribís el código. Solo se usa LA PRIMERA VEZ (luego se guarda sesión en Mongo).
+  // ============================================================
+  const phoneNumber = process.env.WHATSAPP_PHONE_NUMBER;
+  const usarPairingCode = process.env.WHATSAPP_PAIRING_CODE_ONLY === 'true' && phoneNumber;
+
+  if (usarPairingCode && !sock.authState.creds.registered) {
+    sock.ev.on('creds.update', async () => {
+      if (sock.authState.creds.registered) return;
+      try {
+        const pairingCode = await sock.requestPairingCode(phoneNumber);
+        appLogger.info(
+          `📱 CÓDIGO DE VINCULACIÓN (Pairing Code) para el número +${phoneNumber}:`,
+          pairingCode
+        );
+        appLogger.info(
+          'Ingresalo en WhatsApp → Dispositivos vinculados → Vincular con NÚMERO.'
+        );
+      } catch (err) {
+        appLogger.error({ err }, '❌ Error pidiendo pairing code a WhatsApp');
+      }
+    });
+  }
+
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    if (qr) {
+    // Sólo mostramos QR si NO estamos en modo pairing code
+    if (qr && !usarPairingCode) {
       appLogger.info('Escaneá este QR con WhatsApp para vincular el bot:');
       qrcode.generate(qr, { small: true });
     }
@@ -50,14 +80,14 @@ async function iniciarBot() {
 
       if (desconectadoDefinitivo) {
         appLogger.warn(
-          'Sesión cerrada desde el teléfono (logout). Borrá la carpeta ' +
-          `"${config.authFolder}" y volvé a escanear el QR para reconectar.`
+          'Sesión cerrada desde el teléfono (logout). Borrá la colección '
+          + 'baileys_sessions en MongoDB y volvé a vincular (QR o pairing code).'
         );
       } else {
         appLogger.warn({ codigo }, 'Conexión perdida, reintentando...');
         // Reconexión automática ante cortes de red, reinicios del server, etc.
-        // La sesión guardada en disco hace que no haga falta re-escanear el QR.
-        iniciarBot();
+        // La sesión guardada en MongoDB asegura que NO haga falta volver a vincular.
+        setTimeout(() => iniciarBot().catch(e => appLogger.error({ e }, 'Error al reconectar')), 3000);
       }
     }
 

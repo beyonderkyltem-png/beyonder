@@ -50,10 +50,11 @@ async function useMongoAuthState() {
     await BaileysSession.updateOne({ sessionId: 'default' }, { $set });
   };
 
-  const getKey = (type, keyId) => {
+  const get = (type, keyId) => {
     if (type === 'creds') return keys.creds[keyId];
     if (type === 'app-state-sync-key') return keys['app-state-sync-key'][keyId];
     if (type === 'app-state-sync-mac-key') return keys['app-state-sync-mac-key'][keyId];
+    return undefined;
   };
 
   const saveCreds = async () => {
